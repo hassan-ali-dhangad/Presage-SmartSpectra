@@ -1,0 +1,18 @@
+diff --git a/node_modules/@smartspectra/node-sdk/js/main/index.js b/node_modules/@smartspectra/node-sdk/js/main/index.js
+index 3c41742..aa66e4f 100644
+--- a/node_modules/@smartspectra/node-sdk/js/main/index.js
++++ b/node_modules/@smartspectra/node-sdk/js/main/index.js
+@@ -246,7 +246,12 @@ function handleConnection(port, log) {
+                     // is lazy — no native session exists until start(), which
+                     // awaits the barrier — so the two never overlap natively.
+                     retireSession(sdk);
+-                    sdk = new SmartSpectraSDK(sanitizeOptions(data.options));
++                    sdk = new SmartSpectraSDK(
++                        sanitizeOptions({
++                            ...data.options,
++                            apiKey: process.env.PRESAGE_API_KEY,
++                        })
++                    );
+                     installCallbacks();
+                     return;
+ 

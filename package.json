@@ -1,16 +1,37 @@
 {
-  "name": "presage-smartspectra",
+  "name": "stageready",
+  "productName": "StageReady",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "A private rehearsal and presentation practice desktop application",
+  "main": "src/main/main.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "vite --config vite.config.mjs",
+    "electron": "wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
+    "start": "concurrently -k \"npm:dev\" \"npm:electron\"",
+    "build": "vite build --config vite.config.mjs",
+    "postinstall": "patch-package"
   },
-  "keywords": [],
+  "keywords": [
+    "stageready",
+    "presage",
+    "electron",
+    "react"
+  ],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@smartspectra/node-sdk": "^3.4.0"
+    "@smartspectra/node-sdk": "3.5.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.2.1",
+    "concurrently": "^10.0.7",
+    "cross-env": "^10.1.0",
+    "electron": "^45.2.3",
+    "patch-package": "^8.0.1",
+    "vite": "^8.3.6",
+    "wait-on": "^9.5.1"
   }
 }
