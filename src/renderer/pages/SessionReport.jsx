@@ -71,6 +71,28 @@ function SessionReport({ session, onBack }) {
 
         <div className="consent-card">
           <div>
+            <h3>Breathing Rate (bpm)</h3>
+            <p>
+              {session.breathingRate == null
+                ? "Not available"
+                : session.breathingRate}
+            </p>
+          </div>
+        </div>
+
+        <div className="consent-card">
+          <div>
+            <h3>Pulse Rate (bpm)</h3>
+            <p>
+              {session.pulseRate == null
+                ? "Not available"
+                : session.pulseRate}
+            </p>
+          </div>
+        </div>
+
+        <div className="consent-card">
+          <div>
             <h3>Session status</h3>
             <p>
               {targetReached

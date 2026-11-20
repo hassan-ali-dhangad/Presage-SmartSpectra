@@ -23,6 +23,7 @@ function App() {
   );
 
   const totalPracticeMinutes = Math.floor(totalPracticeSeconds / 60);
+  const totalPracticeRemainingSeconds = totalPracticeSeconds % 60;
 
   const lastPractice = sessions.length
     ? new Date(
@@ -447,9 +448,16 @@ function App() {
               <h3>
                 {sessionsLoading
                   ? "..."
-                  : totalPracticeMinutes > 0
-                    ? `${totalPracticeMinutes} min`
-                    : `${totalPracticeSeconds} sec`}
+                  : [
+                      totalPracticeMinutes > 0
+                        ? `${totalPracticeMinutes} min`
+                        : null,
+                      totalPracticeRemainingSeconds > 0
+                        ? `${totalPracticeRemainingSeconds} sec`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" ") || "0 sec"}
               </h3>
               <small>Total time spent practicing</small>
             </article>

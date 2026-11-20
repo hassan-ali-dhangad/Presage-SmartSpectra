@@ -1,10 +1,22 @@
 import { useEffect, useRef, useState } from "react";
-import { SmartSpectraSDK } from "@smartspectra/node-sdk/renderer";
+import {
+  SmartSpectraSDK,
+  breathingMetrics,
+  cardioMetrics,
+} from "@smartspectra/node-sdk/renderer";
 import { decodeMetrics } from "@smartspectra/node-sdk/messages";
 
 function LiveRehearsal({ sessionSetup, onBack, onFinish }) {
   const sdkRef = useRef(null);
   const videoRef = useRef(null);
+  const fpsFrameRequestRef = useRef(null);
+  const fpsAnimationRequestRef = useRef(null);
+  const fpsModeRef = useRef(null);
+  const fpsWindowStartRef = useRef(null);
+  const fpsFrameCountRef = useRef(0);
+  const fpsLastVideoTimeRef = useRef(null);
+  const fpsLastRenderedAtRef = useRef(null);
+  const fpsWatchdogRef = useRef(null);
 
   const [isRunning, setIsRunning] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
@@ -21,6 +33,122 @@ function LiveRehearsal({ sessionSetup, onBack, onFinish }) {
 
   const [breathingRate, setBreathingRate] = useState(null);
   const [pulseRate, setPulseRate] = useState(null);
+  const [cameraFps, setCameraFps] = useState(null);
+
+  const stopFpsMonitoring = () => {
+    const video = videoRef.current;
+
+    if (
+      fpsModeRef.current === "video" &&
+      video &&
+      fpsFrameRequestRef.current !== null &&
+      typeof video.cancelVideoFrameCallback === "function"
+    ) {
+      video.cancelVideoFrameCallback(fpsFrameRequestRef.current);
+    }
+
+    if (fpsAnimationRequestRef.current !== null) {
+      cancelAnimationFrame(fpsAnimationRequestRef.current);
+    }
+
+    if (fpsWatchdogRef.current !== null) {
+      clearInterval(fpsWatchdogRef.current);
+    }
+
+    fpsFrameRequestRef.current = null;
+    fpsAnimationRequestRef.current = null;
+    fpsWatchdogRef.current = null;
+    fpsModeRef.current = null;
+    fpsWindowStartRef.current = null;
+    fpsFrameCountRef.current = 0;
+    fpsLastVideoTimeRef.current = null;
+    fpsLastRenderedAtRef.current = null;
+    setCameraFps(null);
+  };
+
+  const recordFpsSample = (timestamp, renderedFrame) => {
+    if (fpsWindowStartRef.current === null) {
+      fpsWindowStartRef.current = timestamp;
+    }
+
+    if (renderedFrame) {
+      fpsFrameCountRef.current += 1;
+      fpsLastRenderedAtRef.current = performance.now();
+    }
+
+    const windowDuration = timestamp - fpsWindowStartRef.current;
+
+    if (windowDuration >= 1000) {
+      setCameraFps(
+        Math.round((fpsFrameCountRef.current * 1000) / windowDuration),
+      );
+      fpsWindowStartRef.current = timestamp;
+      fpsFrameCountRef.current = 0;
+    }
+  };
+
+  useEffect(() => {
+    const video = videoRef.current;
+
+    if (!isRunning || !video) {
+      stopFpsMonitoring();
+      return;
+    }
+
+    const hasVideoFrameCallback =
+      typeof video.requestVideoFrameCallback === "function";
+
+    if (hasVideoFrameCallback) {
+      fpsModeRef.current = "video";
+
+      const handleVideoFrame = (timestamp) => {
+        recordFpsSample(timestamp, true);
+        fpsFrameRequestRef.current = video.requestVideoFrameCallback(
+          handleVideoFrame,
+        );
+      };
+
+      fpsFrameRequestRef.current =
+        video.requestVideoFrameCallback(handleVideoFrame);
+    } else {
+      fpsModeRef.current = "animation";
+
+      const handleAnimationFrame = (timestamp) => {
+        const isVideoReady = video.readyState >= 2;
+        const currentVideoTime = video.currentTime;
+        const renderedFrame =
+          isVideoReady &&
+          fpsLastVideoTimeRef.current !== null &&
+          currentVideoTime !== fpsLastVideoTimeRef.current;
+
+        if (isVideoReady) {
+          fpsLastVideoTimeRef.current = currentVideoTime;
+        }
+
+        recordFpsSample(timestamp, renderedFrame);
+        fpsAnimationRequestRef.current =
+          requestAnimationFrame(handleAnimationFrame);
+      };
+
+      fpsAnimationRequestRef.current = requestAnimationFrame(handleAnimationFrame);
+    }
+
+    fpsWatchdogRef.current = setInterval(() => {
+      const lastRenderedAt = fpsLastRenderedAtRef.current;
+
+      if (
+        lastRenderedAt !== null &&
+        performance.now() - lastRenderedAt > 1500
+      ) {
+        fpsWindowStartRef.current = null;
+        fpsFrameCountRef.current = 0;
+        fpsLastRenderedAtRef.current = null;
+        setCameraFps(0);
+      }
+    }, 500);
+
+    return stopFpsMonitoring;
+  }, [isRunning]);
 
   // Session timer
   useEffect(() => {
@@ -36,6 +164,8 @@ function LiveRehearsal({ sessionSetup, onBack, onFinish }) {
   // SDK cleanup when component unmounts
   useEffect(() => {
     return () => {
+      stopFpsMonitoring();
+
       if (sdkRef.current) {
         try {
           sdkRef.current.destroy();
@@ -63,7 +193,7 @@ function LiveRehearsal({ sessionSetup, onBack, onFinish }) {
 
       if (!sdk) {
         sdk = new SmartSpectraSDK({
-          requestedMetrics: [0, 1, 2],
+          requestedMetrics: [...breathingMetrics, ...cardioMetrics],
           enableTelemetry: false,
         });
 
@@ -105,6 +235,8 @@ function LiveRehearsal({ sessionSetup, onBack, onFinish }) {
         });
 
         sdk.on("error", (code, message, retryable) => {
+          stopFpsMonitoring();
+
           console.error("SmartSpectra detailed error:", {
             code,
             message,
@@ -158,6 +290,7 @@ function LiveRehearsal({ sessionSetup, onBack, onFinish }) {
     if (isPausing || isFinishing || !isRunning) return;
 
     setIsPausing(true);
+    stopFpsMonitoring();
     setIsRunning(false);
 
     const sdk = sdkRef.current;
@@ -201,6 +334,7 @@ function LiveRehearsal({ sessionSetup, onBack, onFinish }) {
     }
 
     setIsFinishing(true);
+    stopFpsMonitoring();
     setIsRunning(false);
 
     const sdk = sdkRef.current;
@@ -237,6 +371,8 @@ function LiveRehearsal({ sessionSetup, onBack, onFinish }) {
         practiceType: sessionSetup.practiceType,
         duration: sessionSetup.duration,
         actualDurationSeconds: elapsed,
+        breathingRate,
+        pulseRate,
         notes: sessionSetup.notes || "",
         completedAt: new Date().toISOString(),
       });
@@ -327,6 +463,18 @@ function LiveRehearsal({ sessionSetup, onBack, onFinish }) {
           <div>
             <h3>Pulse rate</h3>
             <p>{pulseRate == null ? "Waiting for measurement" : pulseRate}</p>
+          </div>
+
+          <div>
+            <h3>Camera FPS</h3>
+            <p>{cameraFps == null ? "Waiting" : `${cameraFps} FPS`}</p>
+            <p>
+              {cameraFps == null
+                ? "Waiting"
+                : cameraFps >= 25
+                  ? "Good"
+                  : "Low FPS"}
+            </p>
           </div>
         </div>
 

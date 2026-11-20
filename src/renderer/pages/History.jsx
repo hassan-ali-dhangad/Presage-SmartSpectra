@@ -1,5 +1,9 @@
 
+import { useState } from "react";
+
 function History({ sessions, onBack, onDelete, onViewReport }) {
+  const [sessionToDelete, setSessionToDelete] = useState(null);
+
   const sortedSessions = [...sessions].sort(
     (a, b) =>
       new Date(b.completedAt) - new Date(a.completedAt)
@@ -68,7 +72,7 @@ function History({ sessions, onBack, onDelete, onViewReport }) {
 
                   <button
                     className="cancel-button"
-                    onClick={() => onDelete(session.id)}
+                    onClick={() => setSessionToDelete(session)}
                   >
                     Delete session
                   </button>
@@ -78,6 +82,53 @@ function History({ sessions, onBack, onDelete, onViewReport }) {
           </div>
         )}
       </section>
+
+      {sessionToDelete && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-session-title"
+          style={{
+            position: "fixed",
+            inset: 0,
+            display: "grid",
+            placeItems: "center",
+            padding: "24px",
+            background: "rgba(15, 23, 42, 0.45)",
+            zIndex: 10,
+          }}
+        >
+          <div
+            className="consent-card"
+            style={{ width: "min(100%, 440px)", margin: 0 }}
+          >
+            <h2 id="delete-session-title">Delete session?</h2>
+            <p>
+              Are you sure you want to delete this {sessionToDelete.practiceType}{" "}
+              session? This action cannot be undone.
+            </p>
+
+            <div className="setup-actions">
+              <button
+                className="back-button"
+                onClick={() => setSessionToDelete(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="cancel-button"
+                onClick={async () => {
+                  const sessionId = sessionToDelete.id;
+                  await onDelete(sessionId);
+                  setSessionToDelete(null);
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
