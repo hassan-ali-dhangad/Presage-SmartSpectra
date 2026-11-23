@@ -3,11 +3,19 @@ import {
   SmartSpectraSDK,
   breathingMetrics,
   cardioMetrics,
+  ProcessingStatus,
 } from "@smartspectra/node-sdk/renderer";
 import { decodeMetrics } from "@smartspectra/node-sdk/messages";
 
 function LiveRehearsal({ sessionSetup, onBack, onFinish }) {
   const sdkRef = useRef(null);
+  const needsResetRef = useRef(false);
+  const lifecycleInProgressRef = useRef(false);
+  const lifecycleResolveRef = useRef(null);
+  const lifecycleOperationPromiseRef = useRef(Promise.resolve());
+  const cleanupEpochRef = useRef(0);
+  const sdkDestroyedRef = useRef(false);
+  const mountedRef = useRef(true);
   const videoRef = useRef(null);
   const fpsFrameRequestRef = useRef(null);
   const fpsAnimationRequestRef = useRef(null);
@@ -35,7 +43,24 @@ function LiveRehearsal({ sessionSetup, onBack, onFinish }) {
   const [pulseRate, setPulseRate] = useState(null);
   const [cameraFps, setCameraFps] = useState(null);
 
-  const stopFpsMonitoring = () => {
+  const beginLifecycleOperation = () => {
+    lifecycleInProgressRef.current = true;
+    lifecycleOperationPromiseRef.current = new Promise((resolve) => {
+      lifecycleResolveRef.current = resolve;
+    });
+  };
+
+  const endLifecycleOperation = () => {
+    lifecycleInProgressRef.current = false;
+
+    const resolve = lifecycleResolveRef.current;
+    lifecycleResolveRef.current = null;
+    if (resolve) {
+      resolve();
+    }
+  };
+
+  const stopFpsMonitoring = (updateState = true) => {
     const video = videoRef.current;
 
     if (
@@ -63,10 +88,14 @@ function LiveRehearsal({ sessionSetup, onBack, onFinish }) {
     fpsFrameCountRef.current = 0;
     fpsLastVideoTimeRef.current = null;
     fpsLastRenderedAtRef.current = null;
-    setCameraFps(null);
+    if (updateState && mountedRef.current) {
+      setCameraFps(null);
+    }
   };
 
   const recordFpsSample = (timestamp, renderedFrame) => {
+    if (!mountedRef.current) return;
+
     if (fpsWindowStartRef.current === null) {
       fpsWindowStartRef.current = timestamp;
     }
@@ -134,6 +163,8 @@ function LiveRehearsal({ sessionSetup, onBack, onFinish }) {
     }
 
     fpsWatchdogRef.current = setInterval(() => {
+      if (!mountedRef.current) return;
+
       const lastRenderedAt = fpsLastRenderedAtRef.current;
 
       if (
@@ -152,10 +183,12 @@ function LiveRehearsal({ sessionSetup, onBack, onFinish }) {
 
   // Session timer
   useEffect(() => {
-    if (!isRunning) return;
+    if (!isRunning || !mountedRef.current) return;
 
     const interval = setInterval(() => {
-      setElapsed((previous) => previous + 1);
+      if (mountedRef.current) {
+        setElapsed((previous) => previous + 1);
+      }
     }, 1000);
 
     return () => clearInterval(interval);
@@ -163,30 +196,64 @@ function LiveRehearsal({ sessionSetup, onBack, onFinish }) {
 
   // SDK cleanup when component unmounts
   useEffect(() => {
+    mountedRef.current = true;
+    cleanupEpochRef.current += 1;
+
     return () => {
-      stopFpsMonitoring();
+      mountedRef.current = false;
+      stopFpsMonitoring(false);
 
-      if (sdkRef.current) {
-        try {
-          sdkRef.current.destroy();
-        } catch (error) {
-          console.error("SmartSpectra unmount cleanup error:", error);
+      const cleanupEpoch = ++cleanupEpochRef.current;
+      const lifecycleOperation =
+        lifecycleInProgressRef.current
+          ? lifecycleOperationPromiseRef.current
+          : Promise.resolve();
+
+      void (async () => {
+        await lifecycleOperation;
+
+        if (
+          !mountedRef.current &&
+          cleanupEpochRef.current === cleanupEpoch &&
+          !sdkDestroyedRef.current
+        ) {
+          sdkDestroyedRef.current = true;
+
+          const sdk = sdkRef.current;
+          sdkRef.current = null;
+          needsResetRef.current = false;
+
+          if (sdk) {
+            try {
+              sdk.destroy();
+            } catch (error) {
+              console.error("SmartSpectra unmount cleanup error:", error);
+            }
+          }
         }
-
-        sdkRef.current = null;
-      }
+      })();
     };
   }, []);
 
   // Start or resume rehearsal
   const startSession = async () => {
-    if (isStarting || isRunning || isPausing || isFinishing || isFinished) {
+    if (
+      isStarting ||
+      isRunning ||
+      isPausing ||
+      isFinishing ||
+      isFinished ||
+      lifecycleInProgressRef.current
+    ) {
       return;
     }
 
-    setIsStarting(true);
-    setErrorMessage("");
-    setValidationMessage("");
+    beginLifecycleOperation();
+    if (mountedRef.current) {
+      setIsStarting(true);
+      setErrorMessage("");
+      setValidationMessage("");
+    }
 
     try {
       let sdk = sdkRef.current;
@@ -200,6 +267,8 @@ function LiveRehearsal({ sessionSetup, onBack, onFinish }) {
         sdkRef.current = sdk;
 
         sdk.on("streamAvailable", (stream) => {
+          if (!mountedRef.current) return;
+
           if (videoRef.current) {
             videoRef.current.srcObject = stream;
           }
@@ -208,14 +277,29 @@ function LiveRehearsal({ sessionSetup, onBack, onFinish }) {
         });
 
         sdk.on("processingStatus", (status) => {
+          if (!mountedRef.current) return;
+
           setProcessingStatus(String(status));
+
+          if (status === ProcessingStatus.kError) {
+            stopFpsMonitoring();
+            setIsRunning(false);
+            needsResetRef.current = true;
+            setErrorMessage((current) =>
+              current || "SmartSpectra processing failed. Reset is required.",
+            );
+          }
         });
 
         sdk.on("validationStatus", (code, timestampUs, hint) => {
+          if (!mountedRef.current) return;
+
           setValidationMessage(hint || `Validation code: ${code}`);
         });
 
         sdk.on("metrics", (buffer) => {
+          if (!mountedRef.current) return;
+
           try {
             const metrics = decodeMetrics(buffer);
 
@@ -235,7 +319,11 @@ function LiveRehearsal({ sessionSetup, onBack, onFinish }) {
         });
 
         sdk.on("error", (code, message, retryable) => {
+          if (!mountedRef.current) return;
+
           stopFpsMonitoring();
+          setIsRunning(false);
+          needsResetRef.current = true;
 
           console.error("SmartSpectra detailed error:", {
             code,
@@ -251,10 +339,45 @@ function LiveRehearsal({ sessionSetup, onBack, onFinish }) {
 
       setCameraStatus("Connecting camera...");
 
+      if (needsResetRef.current) {
+        try {
+          await sdk.reset();
+          needsResetRef.current = false;
+        } catch (error) {
+          console.error("SmartSpectra reset error:", error);
+
+          try {
+            sdk.destroy();
+          } catch (destroyError) {
+            console.error("SmartSpectra reset cleanup error:", destroyError);
+          }
+
+          if (sdkRef.current === sdk) {
+            sdkRef.current = null;
+          }
+          needsResetRef.current = false;
+
+          if (mountedRef.current) {
+            if (videoRef.current) {
+              videoRef.current.srcObject = null;
+            }
+
+            setCameraStatus("Camera unavailable");
+            setErrorMessage(
+              "Unable to reset SmartSpectra. The session was closed; please try starting a new session.",
+            );
+            setIsRunning(false);
+          }
+          return;
+        }
+      }
+
       await sdk.start();
 
-      setCameraStatus("Camera active");
-      setIsRunning(true);
+      if (mountedRef.current) {
+        setCameraStatus("Camera active");
+        setIsRunning(true);
+      }
     } catch (error) {
       console.error("SmartSpectra start error:", error);
 
@@ -270,41 +393,60 @@ function LiveRehearsal({ sessionSetup, onBack, onFinish }) {
         sdkRef.current = null;
       }
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = null;
+      if (mountedRef.current) {
+        if (videoRef.current) {
+          videoRef.current.srcObject = null;
+        }
+
+        setCameraStatus("Camera unavailable");
+        setErrorMessage(
+          error?.message || "Unable to start the SmartSpectra session.",
+        );
+
+        setIsRunning(false);
       }
-
-      setCameraStatus("Camera unavailable");
-      setErrorMessage(
-        error?.message || "Unable to start the SmartSpectra session.",
-      );
-
-      setIsRunning(false);
     } finally {
-      setIsStarting(false);
+      endLifecycleOperation();
+      if (mountedRef.current) {
+        setIsStarting(false);
+      }
     }
   };
 
   // Pause rehearsal
   const pauseSession = async () => {
-    if (isPausing || isFinishing || !isRunning) return;
+    if (
+      isPausing ||
+      isFinishing ||
+      !isRunning ||
+      lifecycleInProgressRef.current
+    ) {
+      return;
+    }
 
-    setIsPausing(true);
+    beginLifecycleOperation();
+    if (mountedRef.current) {
+      setIsPausing(true);
+    }
     stopFpsMonitoring();
-    setIsRunning(false);
+    if (mountedRef.current) {
+      setIsRunning(false);
+    }
 
     const sdk = sdkRef.current;
 
     try {
-      if (sdk) {
+      if (sdk && !needsResetRef.current) {
         await sdk.stop();
       }
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = null;
-      }
+      if (mountedRef.current) {
+        if (videoRef.current) {
+          videoRef.current.srcObject = null;
+        }
 
-      setCameraStatus("Camera paused");
+        setCameraStatus("Camera paused");
+      }
     } catch (error) {
       console.error("SmartSpectra pause error:", error);
 
@@ -315,32 +457,49 @@ function LiveRehearsal({ sessionSetup, onBack, onFinish }) {
       }
 
       sdkRef.current = null;
+      needsResetRef.current = false;
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = null;
+      if (mountedRef.current) {
+        if (videoRef.current) {
+          videoRef.current.srcObject = null;
+        }
+
+        setCameraStatus("Camera unavailable");
+        setErrorMessage(error?.message || "Unable to pause the session.");
       }
-
-      setCameraStatus("Camera unavailable");
-      setErrorMessage(error?.message || "Unable to pause the session.");
     } finally {
-      setIsPausing(false);
+      endLifecycleOperation();
+      if (mountedRef.current) {
+        setIsPausing(false);
+      }
     }
   };
 
   // Finish rehearsal and release camera resources
   const handleFinish = async () => {
-    if (isFinishing || isStarting || isPausing || isFinished) {
+    if (
+      isFinishing ||
+      isStarting ||
+      isPausing ||
+      isFinished ||
+      lifecycleInProgressRef.current
+    ) {
       return;
     }
 
-    setIsFinishing(true);
+    beginLifecycleOperation();
+    if (mountedRef.current) {
+      setIsFinishing(true);
+    }
     stopFpsMonitoring();
-    setIsRunning(false);
+    if (mountedRef.current) {
+      setIsRunning(false);
+    }
 
     const sdk = sdkRef.current;
 
     try {
-      if (sdk) {
+      if (sdk && !needsResetRef.current) {
         await sdk.stop();
       }
     } catch (error) {
@@ -356,14 +515,20 @@ function LiveRehearsal({ sessionSetup, onBack, onFinish }) {
         sdkRef.current = null;
       }
 
-      if (videoRef.current) {
+      needsResetRef.current = false;
+
+      if (mountedRef.current && videoRef.current) {
         videoRef.current.srcObject = null;
       }
+
+      endLifecycleOperation();
     }
 
-    setCameraStatus("Camera inactive");
-    setIsFinished(true);
-    setIsFinishing(false);
+    if (mountedRef.current) {
+      setCameraStatus("Camera inactive");
+      setIsFinished(true);
+      setIsFinishing(false);
+    }
 
     if (onFinish) {
       onFinish({
@@ -382,6 +547,12 @@ function LiveRehearsal({ sessionSetup, onBack, onFinish }) {
   const minutes = String(Math.floor(elapsed / 60)).padStart(2, "0");
 
   const seconds = String(elapsed % 60).padStart(2, "0");
+  const formatMetric = (value) =>
+    value == null ? null : Number(value).toFixed(1);
+  const breathingDisplay = formatMetric(breathingRate);
+  const pulseDisplay = formatMetric(pulseRate);
+  const fpsStatus =
+    cameraFps == null ? "Waiting" : cameraFps >= 25 ? "Good" : "Low FPS";
 
   return (
     <main className="setup-page">
@@ -397,92 +568,131 @@ function LiveRehearsal({ sessionSetup, onBack, onFinish }) {
         <span className="setup-brand">StageReady</span>
       </header>
 
-      <section className="consent-content">
+      <section className="live-content">
         <p className="setup-eyebrow">LIVE REHEARSAL</p>
 
-        <h1>Your practice space</h1>
-
-        <p className="setup-description">
-          Practice at your own pace. Monitor your session as you rehearse.
-        </p>
-
-        <div className="consent-card">
+        <div className="live-heading">
           <div>
-            <h3>Practice type</h3>
-            <p>{sessionSetup.practiceType}</p>
-          </div>
-
-          <div>
-            <h3>Target duration</h3>
-            <p>{sessionSetup.duration} minutes</p>
-          </div>
-        </div>
-
-        <div className="live-preview">
-          <video
-            ref={videoRef}
-            autoPlay
-            muted
-            playsInline
-            style={{
-              width: "100%",
-              maxHeight: "360px",
-              objectFit: "cover",
-              borderRadius: "12px",
-              background: "#0f172a",
-            }}
-          />
-
-          <h2>Camera preview</h2>
-
-          <p>{cameraStatus}</p>
-
-          <span className="camera-status">{cameraStatus}</span>
-        </div>
-
-        <div className="timer-card">
-          <p className="setup-eyebrow">SESSION TIMER</p>
-
-          <div className="timer-display">
-            {minutes}:{seconds}
-          </div>
-
-          <p>Target: {sessionSetup.duration} minutes</p>
-        </div>
-
-        <div className="consent-card">
-          <div>
-            <h3>Breathing rate</h3>
-            <p>
-              {breathingRate == null
-                ? "Waiting for measurement"
-                : breathingRate}
+            <h1>Your practice space</h1>
+            <p className="setup-description">
+              Practice at your own pace. Monitor your session as you rehearse.
             </p>
           </div>
-
-          <div>
-            <h3>Pulse rate</h3>
-            <p>{pulseRate == null ? "Waiting for measurement" : pulseRate}</p>
-          </div>
-
-          <div>
-            <h3>Camera FPS</h3>
-            <p>{cameraFps == null ? "Waiting" : `${cameraFps} FPS`}</p>
-            <p>
-              {cameraFps == null
-                ? "Waiting"
-                : cameraFps >= 25
-                  ? "Good"
-                  : "Low FPS"}
-            </p>
+          <div className="live-session-meta">
+            <span>{sessionSetup.practiceType}</span>
+            <span>{sessionSetup.duration} min target</span>
           </div>
         </div>
 
-        {validationMessage && (
-          <p className="consent-disclaimer">{validationMessage}</p>
+        <div className="live-grid">
+          <div className="live-preview-card">
+            <div className="live-preview-header">
+              <div>
+                <p>Camera preview</p>
+                <span
+                  className={`live-status ${
+                    isRunning ? "live-status-active" : ""
+                  }`}
+                >
+                  <i />
+                  {cameraStatus}
+                </span>
+              </div>
+              {cameraFps != null && (
+                <span className="live-fps">{cameraFps} FPS</span>
+              )}
+            </div>
+
+            <div
+              className={`live-preview ${
+                isRunning ? "live-preview-active" : ""
+              }`}
+            >
+              <video ref={videoRef} autoPlay muted playsInline />
+              {!isRunning && (
+                <div className="camera-placeholder">
+                  <div className="camera-placeholder-icon">◉</div>
+                  <strong>
+                    {cameraStatus === "Camera paused"
+                      ? "Camera paused"
+                      : "Camera inactive"}
+                  </strong>
+                  <span>
+                    {elapsed === 0
+                      ? "Start the session when you are ready"
+                      : "Resume to restore your camera preview"}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {cameraFps != null && (
+              <div
+                className={`fps-bar ${
+                  cameraFps < 25 ? "fps-bar-low" : "fps-bar-good"
+                }`}
+              >
+                <span>
+                  {fpsStatus === "Low FPS"
+                    ? "Low camera FPS — position and lighting may affect measurements"
+                    : "Camera feed quality is good"}
+                </span>
+                <strong>{fpsStatus}</strong>
+              </div>
+            )}
+          </div>
+
+          <aside className="live-metrics">
+            <div className="timer-card">
+              <p className="setup-eyebrow">SESSION TIMER</p>
+              <div className="timer-display">{minutes}:{seconds}</div>
+              <p>Target: {sessionSetup.duration} minutes</p>
+            </div>
+
+            <div className="metric-card metric-card-breathing">
+              <div className="metric-label">
+                <span className="metric-icon">↗</span>
+                <h3>Breathing rate</h3>
+              </div>
+              <div className="metric-value">
+                {breathingDisplay ?? "—"}
+                {breathingDisplay != null && <small> bpm</small>}
+              </div>
+              <p>
+                {breathingDisplay == null
+                  ? "Waiting for measurement"
+                  : "SmartSpectra measurement"}
+              </p>
+            </div>
+
+            <div className="metric-card metric-card-pulse">
+              <div className="metric-label">
+                <span className="metric-icon">♥</span>
+                <h3>Pulse rate</h3>
+              </div>
+              <div className="metric-value">
+                {pulseDisplay ?? "—"}
+                {pulseDisplay != null && <small> bpm</small>}
+              </div>
+              <p>
+                {pulseDisplay == null
+                  ? "Waiting for measurement"
+                  : "SmartSpectra measurement"}
+              </p>
+            </div>
+
+            <div className="processing-card">
+              <span>Processing status</span>
+              <strong>{processingStatus}</strong>
+            </div>
+          </aside>
+        </div>
+
+        {(validationMessage || errorMessage) && (
+          <div className="live-alert" role="status">
+            {errorMessage || validationMessage}
+          </div>
         )}
-
-        {errorMessage && <p className="consent-disclaimer">{errorMessage}</p>}
 
         <div className="setup-actions">
           {!isRunning && !isFinished && (
@@ -526,11 +736,7 @@ function LiveRehearsal({ sessionSetup, onBack, onFinish }) {
           )}
         </div>
 
-        <p className="consent-disclaimer">
-          Processing status: {processingStatus}
-        </p>
-
-        <p className="consent-disclaimer">
+        <p className="live-disclaimer">
           SmartSpectra measurements are for practice feedback and are not a
           medical diagnosis.
         </p>

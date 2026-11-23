@@ -18,9 +18,9 @@ function Settings({ appInfo, sessions, onBack }) {
           Manage your application preferences and privacy information.
         </p>
 
-        <h2>Privacy</h2>
+        <h2 className="settings-section-title">Privacy</h2>
 
-        <div className="consent-card">
+        <div className="settings-card">
           <div>
             <h3>Local data storage</h3>
             <p>
@@ -33,9 +33,9 @@ function Settings({ appInfo, sessions, onBack }) {
           </div>
         </div>
 
-        <h2>Camera and sensors</h2>
+        <h2 className="settings-section-title">Camera and sensors</h2>
 
-        <div className="consent-card">
+        <div className="settings-card">
           <div>
             <h3>Camera status</h3>
             <p>
@@ -48,23 +48,23 @@ function Settings({ appInfo, sessions, onBack }) {
           </div>
         </div>
 
-        <h2>Application information</h2>
+        <h2 className="settings-section-title">Application information</h2>
 
-        <div className="consent-card">
+        <div className="settings-card">
           <div>
             <h3>Application name</h3>
             <p>{appInfo?.name || "StageReady"}</p>
           </div>
         </div>
 
-        <div className="consent-card">
+        <div className="settings-card">
           <div>
             <h3>Version</h3>
             <p>{appInfo?.version || "1.0.0"}</p>
           </div>
         </div>
 
-        <div className="consent-card">
+        <div className="settings-card">
           <div>
             <h3>Saved practice sessions</h3>
 

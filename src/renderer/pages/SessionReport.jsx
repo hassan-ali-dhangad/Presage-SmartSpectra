@@ -46,75 +46,52 @@ function SessionReport({ session, onBack }) {
           Review your completed practice session.
         </p>
 
-        <div className="consent-card">
+        <div className="report-summary">
           <div>
-            <h3>Practice type</h3>
-            <p>{session.practiceType}</p>
+            <span>Practice type</span>
+            <strong>{session.practiceType}</strong>
+          </div>
+          <div>
+            <span>Actual practice time</span>
+            <strong>{minutes} min {seconds} sec</strong>
+          </div>
+          <div>
+            <span>Session status</span>
+            <strong>{targetReached ? "Target reached" : "Completed"}</strong>
           </div>
         </div>
 
-        <div className="consent-card">
+        <div className="report-metrics">
+          <article className="report-metric breathing">
+            <span>Breathing rate</span>
+            <strong>
+              {session.breathingRate == null
+                ? "Not available"
+                : `${Number(session.breathingRate).toFixed(1)} bpm`}
+            </strong>
+          </article>
+          <article className="report-metric pulse">
+            <span>Pulse rate</span>
+            <strong>
+              {session.pulseRate == null
+                ? "Not available"
+                : `${Number(session.pulseRate).toFixed(1)} bpm`}
+            </strong>
+          </article>
+        </div>
+
+        <div className="report-details">
           <div>
             <h3>Target duration</h3>
             <p>{session.duration} minutes</p>
           </div>
-        </div>
-
-        <div className="consent-card">
-          <div>
-            <h3>Actual practice time</h3>
-            <p>
-              {minutes} min {seconds} sec
-            </p>
-          </div>
-        </div>
-
-        <div className="consent-card">
-          <div>
-            <h3>Breathing Rate (bpm)</h3>
-            <p>
-              {session.breathingRate == null
-                ? "Not available"
-                : session.breathingRate}
-            </p>
-          </div>
-        </div>
-
-        <div className="consent-card">
-          <div>
-            <h3>Pulse Rate (bpm)</h3>
-            <p>
-              {session.pulseRate == null
-                ? "Not available"
-                : session.pulseRate}
-            </p>
-          </div>
-        </div>
-
-        <div className="consent-card">
-          <div>
-            <h3>Session status</h3>
-            <p>
-              {targetReached
-                ? "Target duration reached"
-                : "Session completed"}
-            </p>
-          </div>
-        </div>
-
-        <div className="consent-card">
           <div>
             <h3>Completed on</h3>
             <p>{completedDate}</p>
           </div>
-        </div>
-
-        <div className="consent-card">
           <div>
             <h3>Practice notes</h3>
-            <p>
-              {session.notes || "No notes added for this session."}
-            </p>
+            <p>{session.notes || "No notes added for this session."}</p>
           </div>
         </div>
       </section>

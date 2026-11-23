@@ -345,15 +345,24 @@ function App() {
             <span>▦</span> Dashboard
           </button>
 
-          <button className="nav-item" onClick={() => navigateTo("practice")}>
+          <button
+            className={`nav-item ${page === "practice" ? "active" : ""}`}
+            onClick={() => navigateTo("practice")}
+          >
             <span>◉</span> Practice
           </button>
 
-          <button className="nav-item" onClick={() => navigateTo("history")}>
+          <button
+            className={`nav-item ${page === "history" ? "active" : ""}`}
+            onClick={() => navigateTo("history")}
+          >
             <span>▤</span> Session History
           </button>
 
-          <button className="nav-item" onClick={() => navigateTo("settings")}>
+          <button
+            className={`nav-item ${page === "settings" ? "active" : ""}`}
+            onClick={() => navigateTo("settings")}
+          >
             <span>⚙</span> Settings
           </button>
         </nav>

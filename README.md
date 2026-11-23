@@ -66,9 +66,9 @@ Requirements:
 From PowerShell:
 
 ```powershell
-git clone <YOUR_PUBLIC_REPOSITORY_URL>
+git clone https://github.com/hassan-ali-dhangad/Presage-SmartSpectra
 cd Presage-SmartSpectra
-npm install
+npm.cmd install
 ```
 
 Create a `.env` file in the project root and set the SDK variable:
@@ -82,13 +82,13 @@ Keep the real key out of source control. `.env` and `.env.*` are excluded by `.g
 Start the Vite and Electron development processes:
 
 ```powershell
-npm start
+npm.cmd start
 ```
 
 Build the production renderer bundle:
 
 ```powershell
-npm run build
+npm.cmd run build
 ```
 
 The Vite build writes the renderer to `dist/`. This repository currently has no configured Windows installer or distributable packaging.
@@ -173,15 +173,14 @@ StageReady is designed around local session storage and explicit camera consent.
 
 Breathing and pulse measurements are practice feedback only. They are not medical diagnoses, and StageReady does not provide medical advice or emergency monitoring. Use qualified medical professionals for health concerns.
 
+### Optional AI services
+
+StageReady does not currently use external AI services to analyze practice sessions or process user data.
+
 ## Demo video
 
-**Demo video placeholder:** [Add public demo video URL]
+https://youtu.be/QQ_X1Vlhle0
 
 ## Screenshots
 
-- **Dashboard placeholder:** [Add screenshot]
-- **Practice setup placeholder:** [Add screenshot]
-- **Camera consent placeholder:** [Add screenshot]
-- **Live rehearsal placeholder:** [Add screenshot]
-- **Session report placeholder:** [Add screenshot]
-- **Session history placeholder:** [Add screenshot]
+Screenshots are not included yet.
